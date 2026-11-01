@@ -13,7 +13,7 @@ export const API_BASE_URL = (
  */
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000, // 30 second timeout for image processing
+  timeout: 120000, // 120 second timeout for deep learning inference on cloud CPU
 })
 
 // ── Request interceptor — inject JWT token automatically ────────

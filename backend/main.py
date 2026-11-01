@@ -45,7 +45,7 @@ from fastapi import (
     Depends, FastAPI, File, HTTPException, Request, UploadFile, status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -64,6 +64,7 @@ from sqlalchemy.orm import DeclarativeBase, Session, relationship, sessionmaker
 SECRET_KEY      = "xray-super-secret-key-change-in-production-2024"
 ALGORITHM       = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
+ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY", "admin123")
 
 BASE_DIR        = Path(__file__).resolve().parent
 DATABASE_URL    = f"sqlite:///{BASE_DIR / 'xray_app.db'}"
@@ -101,11 +102,13 @@ class UserModel(Base):
     """Users table."""
     __tablename__ = "users"
 
-    id       = Column(Integer, primary_key=True, index=True)
-    email    = Column(String, unique=True, index=True, nullable=False)
-    password = Column(String, nullable=False)             # bcrypt hash
+    id         = Column(Integer, primary_key=True, index=True)
+    email      = Column(String, unique=True, index=True, nullable=False)
+    password   = Column(String, nullable=False)             # bcrypt hash
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    last_login = Column(DateTime, nullable=True)
 
-    reports  = relationship("ReportModel", back_populates="user", cascade="all, delete-orphan")
+    reports    = relationship("ReportModel", back_populates="user", cascade="all, delete-orphan")
 
 
 class ReportModel(Base):
@@ -127,15 +130,23 @@ class ReportModel(Base):
 # Create all tables on startup
 Base.metadata.create_all(bind=engine)
 
-# ── Auto-migrate: add report_text and heatmap_path columns if they don't exist ──
+# ── Auto-migrate: add columns if they don't exist ──
 with engine.connect() as _conn:
     from sqlalchemy import text as _sql
-    cols = [row[1] for row in _conn.execute(_sql("PRAGMA table_info(reports)")).fetchall()]
-    if "report_text" not in cols:
+    cols_reports = [row[1] for row in _conn.execute(_sql("PRAGMA table_info(reports)")).fetchall()]
+    if "report_text" not in cols_reports:
         _conn.execute(_sql("ALTER TABLE reports ADD COLUMN report_text TEXT"))
         _conn.commit()
-    if "heatmap_path" not in cols:
+    if "heatmap_path" not in cols_reports:
         _conn.execute(_sql("ALTER TABLE reports ADD COLUMN heatmap_path TEXT"))
+        _conn.commit()
+
+    cols_users = [row[1] for row in _conn.execute(_sql("PRAGMA table_info(users)")).fetchall()]
+    if "created_at" not in cols_users:
+        _conn.execute(_sql("ALTER TABLE users ADD COLUMN created_at DATETIME"))
+        _conn.commit()
+    if "last_login" not in cols_users:
+        _conn.execute(_sql("ALTER TABLE users ADD COLUMN last_login DATETIME"))
         _conn.commit()
 
 # ── Backfill: ensure existing reports have report_text ──
@@ -382,7 +393,7 @@ def run_prediction(image: Image.Image) -> tuple[str, float, str, "np.ndarray"]:
 
     # Preprocess → predict
     input_tensor = _preprocess_image(image)           # shape (1, 224, 224, 3)
-    preds        = _ML_MODEL.predict(input_tensor, verbose=0)[0]  # shape (5,)
+    preds        = _ML_MODEL(input_tensor, training=False).numpy()[0]  # shape (5,)
 
     best_idx    = int(np.argmax(preds))
     confidence  = float(preds[best_idx])
@@ -418,6 +429,21 @@ def _apply_jet_colormap(gray: np.ndarray) -> np.ndarray:
         return np.uint8(rgb * 255)
 
 
+_GRAD_MODEL: "Model | None" = None
+
+def _get_grad_model(model: "Model", layer_name: str = GRADCAM_LAYER) -> "Model | None":
+    global _GRAD_MODEL
+    if _GRAD_MODEL is None and model is not None:
+        try:
+            _GRAD_MODEL = Model(
+                inputs=model.inputs,
+                outputs=[model.get_layer(layer_name).output, model.output],
+            )
+        except Exception as exc:
+            logging.warning("Failed to build cached grad_model: %s", exc)
+    return _GRAD_MODEL
+
+
 def get_gradcam(
     model: "Model",
     input_tensor: np.ndarray,
@@ -426,23 +452,11 @@ def get_gradcam(
 ) -> np.ndarray:
     """
     Compute the Grad-CAM activation map for a given class index.
-
-    Args:
-        model:        The loaded Keras model.
-        input_tensor: Preprocessed batch tensor, shape (1, 224, 224, 3).
-        class_idx:    Index of the predicted class (used to select gradient).
-        layer_name:   Name of the last convolutional layer to hook.
-
-    Returns:
-        2-D NumPy float32 array normalised to [0, 1], shape (H_feat, W_feat).
-        Returns a zero array on any error.
     """
     try:
-        # Build a sub-model: input → [conv-layer output, final predictions]
-        grad_model = Model(
-            inputs  = model.inputs,
-            outputs = [model.get_layer(layer_name).output, model.output],
-        )
+        grad_model = _get_grad_model(model, layer_name)
+        if grad_model is None:
+            return np.zeros((7, 7), dtype=np.float32)
 
         inp = tf.cast(input_tensor, tf.float32)
         with tf.GradientTape() as tape:
@@ -551,11 +565,10 @@ app.add_middleware(
 # ─────────────────────────────────────────────────────────────────
 
 @app.on_event("startup")
-async def backfill_report_text() -> None:
+async def startup_warmup() -> None:
     """
-    On every server start, find any reports rows where report_text is NULL
-    (e.g. created before the column existed) and fill them using
-    _generate_report() with a default confidence of 0.0.
+    On server start, backfill legacy reports and pre-warm the TensorFlow model
+    so user prediction requests don't hit cold-start graph compilation delays.
     """
     db = SessionLocal()
     try:
@@ -566,6 +579,17 @@ async def backfill_report_text() -> None:
             db.commit()
     finally:
         db.close()
+
+    if _ML_MODEL is not None:
+        try:
+            dummy = np.zeros((1, 224, 224, 3), dtype=np.float32)
+            _ML_MODEL(dummy, training=False)
+            gm = _get_grad_model(_ML_MODEL)
+            if gm is not None:
+                gm(dummy, training=False)
+            logging.info("TensorFlow model and Grad-CAM warmed up successfully.")
+        except Exception as exc:
+            logging.warning("TensorFlow warmup: %s", exc)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -620,7 +644,8 @@ async def register(body: UserRegisterRequest, db: Session = Depends(get_db)):
             detail=f"Password hashing failed: {exc}",
         )
 
-    user = UserModel(email=body.email, password=hashed_pw)
+    now = datetime.now(timezone.utc)
+    user = UserModel(email=body.email, password=hashed_pw, created_at=now, last_login=now)
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -643,6 +668,9 @@ async def login(body: UserLoginRequest, db: Session = Depends(get_db)):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    user.last_login = datetime.now(timezone.utc)
+    db.commit()
+
     token = create_access_token(
         data={"sub": user.email},
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
@@ -661,6 +689,7 @@ async def login(body: UserLoginRequest, db: Session = Depends(get_db)):
     status_code=status.HTTP_200_OK,
 )
 async def predict_xray(
+    request: Request,
     file: UploadFile = File(..., description="Chest X-ray image (JPEG or PNG)"),
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -755,7 +784,8 @@ async def predict_xray(
         heatmap_save     = HEATMAP_DIR / heatmap_filename
         heatmap_save.write_bytes(heatmap_bytes)
         heatmap_path = f"/uploads/heatmaps/{heatmap_filename}"
-        heatmap_url  = f"http://localhost:8000{heatmap_path}"
+        base_url = str(request.base_url).rstrip("/")
+        heatmap_url  = f"{base_url}{heatmap_path}"
     except Exception as exc:
         # Grad-CAM is non-critical; log and continue without it
         logging.warning("Grad-CAM heatmap generation failed: %s", exc)
@@ -806,6 +836,241 @@ async def get_reports(
         .all()
     )
     return [ReportOut.from_orm_with_url(r, base_url) for r in rows]
+
+
+# ─────────────────────────────────────────────────────────────────
+# Admin & Database Inspection Dashboard
+# ─────────────────────────────────────────────────────────────────
+
+@app.get("/admin/api/overview", tags=["Admin"])
+async def admin_api_overview(
+    key: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """API endpoint to view all registered users and reports in the database."""
+    if key != ADMIN_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Invalid admin key.")
+
+    users = db.query(UserModel).order_by(UserModel.id.desc()).all()
+    reports = db.query(ReportModel).order_by(ReportModel.created_at.desc()).all()
+
+    return {
+        "total_users": len(users),
+        "total_reports": len(reports),
+        "users": [
+            {
+                "id": u.id,
+                "email": u.email,
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+                "last_login": u.last_login.isoformat() if u.last_login else None,
+                "report_count": len(u.reports),
+            }
+            for u in users
+        ],
+        "reports": [
+            {
+                "id": r.id,
+                "user_id": r.user_id,
+                "user_email": r.user.email if r.user else "Unknown",
+                "disease": r.disease,
+                "confidence": round(r.confidence, 4),
+                "image_path": r.image_path,
+                "heatmap_path": r.heatmap_path,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in reports
+        ],
+    }
+
+
+@app.get("/admin", response_class=HTMLResponse, tags=["Admin"])
+async def admin_dashboard(
+    request: Request,
+    key: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Interactive database inspector for users, logins, and diagnostic reports."""
+    base_url = str(request.base_url).rstrip("/")
+    if key != ADMIN_SECRET_KEY:
+        return HTMLResponse(content="""
+        <!DOCTYPE html>
+        <html lang="en" class="dark">
+        <head>
+          <meta charset="UTF-8">
+          <title>Admin Login — Database Inspector</title>
+          <script src="https://cdn.tailwindcss.com"></script>
+        </head>
+        <body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4">
+          <div class="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl">
+            <div class="text-center mb-6">
+              <div class="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-blue-500/10 text-blue-400 mb-3 font-bold text-xl">🛡️</div>
+              <h1 class="text-2xl font-bold text-white">Database Inspector</h1>
+              <p class="text-sm text-slate-400 mt-1">Enter your admin key to view all logins and reports.</p>
+            </div>
+            <form method="GET" action="/admin" class="space-y-4">
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Admin Key</label>
+                <input type="password" name="key" autofocus placeholder="Default: admin123" required
+                  class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+              </div>
+              <button type="submit" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-xl transition duration-150 shadow-lg shadow-blue-600/30">
+                Unlock Database Dashboard
+              </button>
+            </form>
+          </div>
+        </body>
+        </html>
+        """)
+
+    users = db.query(UserModel).order_by(UserModel.id.desc()).all()
+    reports = db.query(ReportModel).order_by(ReportModel.created_at.desc()).all()
+
+    user_rows_html = ""
+    for u in users:
+        c_time = u.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') if u.created_at else "Earlier"
+        l_time = u.last_login.strftime('%Y-%m-%d %H:%M:%S UTC') if u.last_login else "N/A"
+        r_count = len(u.reports)
+        user_rows_html += f"""
+        <tr class="border-b border-slate-800/80 hover:bg-slate-900/40 transition">
+          <td class="py-3 px-4 font-mono text-xs text-slate-400">#{u.id}</td>
+          <td class="py-3 px-4 font-semibold text-white">{u.email}</td>
+          <td class="py-3 px-4 text-xs text-slate-300 font-mono">{c_time}</td>
+          <td class="py-3 px-4 text-xs text-emerald-400 font-mono">{l_time}</td>
+          <td class="py-3 px-4 text-center">
+            <span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">{r_count}</span>
+          </td>
+        </tr>
+        """
+
+    report_rows_html = ""
+    for r in reports:
+        u_email = r.user.email if r.user else f"User #{r.user_id}"
+        r_time = r.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') if r.created_at else "N/A"
+        conf_pct = f"{round(r.confidence * 100, 1)}%"
+        img_url = f"{base_url}{r.image_path}"
+        hm_url = f"{base_url}{r.heatmap_path}" if r.heatmap_path else ""
+        hm_btn = f'<a href="{hm_url}" target="_blank" class="px-2 py-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 rounded text-xs transition">Heatmap</a>' if hm_url else '<span class="text-xs text-slate-600">—</span>'
+        orig_btn = f'<a href="{img_url}" target="_blank" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded text-xs transition">Original</a>'
+
+        report_rows_html += f"""
+        <tr class="border-b border-slate-800/80 hover:bg-slate-900/40 transition">
+          <td class="py-3 px-4 font-mono text-xs text-slate-400">#{r.id}</td>
+          <td class="py-3 px-4 text-sm text-slate-200">{u_email}</td>
+          <td class="py-3 px-4">
+            <span class="px-2.5 py-1 rounded-md text-xs font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/20">{r.disease}</span>
+          </td>
+          <td class="py-3 px-4 font-mono text-sm font-semibold text-emerald-400">{conf_pct}</td>
+          <td class="py-3 px-4 text-xs text-slate-400 font-mono">{r_time}</td>
+          <td class="py-3 px-4 flex gap-1.5 items-center">
+            {orig_btn}
+            {hm_btn}
+          </td>
+        </tr>
+        """
+
+    return HTMLResponse(content=f"""
+    <!DOCTYPE html>
+    <html lang="en" class="dark">
+    <head>
+      <meta charset="UTF-8">
+      <title>Admin Overview — Database Inspector</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-slate-950 text-slate-100 min-h-screen p-6 md:p-10 font-sans">
+      <div class="max-w-6xl mx-auto space-y-8">
+        
+        <!-- Header -->
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-800 pb-6">
+          <div>
+            <div class="flex items-center gap-3">
+              <span class="px-2.5 py-1 rounded bg-blue-500/20 text-blue-400 text-xs font-bold uppercase tracking-wider">Live Database</span>
+              <span class="text-xs text-slate-500 font-mono">SQLite: xray_app.db</span>
+            </div>
+            <h1 class="text-2xl md:text-3xl font-bold text-white mt-1">Admin & Database Inspector</h1>
+            <p class="text-sm text-slate-400">All registered user accounts, logins, and diagnosis reports stored in the database.</p>
+          </div>
+          <div class="flex items-center gap-3">
+            <a href="/admin?key={key}" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-sm font-medium transition border border-slate-700 shadow-sm">
+              ↻ Refresh Data
+            </a>
+            <a href="/admin/api/overview?key={key}" target="_blank" class="px-4 py-2 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 border border-blue-500/30 rounded-xl text-sm font-medium transition">
+              View Raw JSON
+            </a>
+          </div>
+        </div>
+
+        <!-- Metric Badges -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div class="bg-slate-900 border border-slate-800/80 rounded-2xl p-5 shadow-lg">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Registered Accounts</div>
+            <div class="text-3xl font-bold text-white mt-2">{len(users)}</div>
+            <div class="text-xs text-slate-500 mt-1">Users signed up via email</div>
+          </div>
+          <div class="bg-slate-900 border border-slate-800/80 rounded-2xl p-5 shadow-lg">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Diagnostic Reports</div>
+            <div class="text-3xl font-bold text-blue-400 mt-2">{len(reports)}</div>
+            <div class="text-xs text-slate-500 mt-1">X-ray scans classified & saved</div>
+          </div>
+          <div class="bg-slate-900 border border-slate-800/80 rounded-2xl p-5 shadow-lg">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Authentication Guard</div>
+            <div class="text-3xl font-bold text-emerald-400 mt-2">Active</div>
+            <div class="text-xs text-slate-500 mt-1">JWT Tokens (HS256)</div>
+          </div>
+        </div>
+
+        <!-- Section 1: Users & Logins -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-lg font-bold text-white">1. User Accounts & Login Activity</h2>
+            <span class="text-xs text-slate-400 font-mono">{len(users)} accounts</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse text-sm">
+              <thead>
+                <tr class="border-b border-slate-800 text-xs text-slate-400 font-semibold uppercase tracking-wider bg-slate-950/40">
+                  <th class="py-3 px-4">User ID</th>
+                  <th class="py-3 px-4">Gmail / Email</th>
+                  <th class="py-3 px-4">Registered At</th>
+                  <th class="py-3 px-4">Last Login</th>
+                  <th class="py-3 px-4 text-center">Reports</th>
+                </tr>
+              </thead>
+              <tbody>
+                {user_rows_html if user_rows_html else '<tr><td colspan="5" class="py-6 text-center text-slate-500 text-sm">No users registered yet.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Section 2: Reports -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-lg font-bold text-white">2. Diagnostic Reports & Scans Log</h2>
+            <span class="text-xs text-slate-400 font-mono">{len(reports)} scans</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse text-sm">
+              <thead>
+                <tr class="border-b border-slate-800 text-xs text-slate-400 font-semibold uppercase tracking-wider bg-slate-950/40">
+                  <th class="py-3 px-4">Report ID</th>
+                  <th class="py-3 px-4">User Account</th>
+                  <th class="py-3 px-4">Detected Disease</th>
+                  <th class="py-3 px-4">Confidence</th>
+                  <th class="py-3 px-4">Date / Time</th>
+                  <th class="py-3 px-4">Assets</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report_rows_html if report_rows_html else '<tr><td colspan="6" class="py-6 text-center text-slate-500 text-sm">No diagnostic reports stored yet.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </body>
+    </html>
+    """)
 
 
 # ─────────────────────────────────────────────────────────────────
