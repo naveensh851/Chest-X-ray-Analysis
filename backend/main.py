@@ -525,12 +525,21 @@ app = FastAPI(
     version="2.0.0",
 )
 
+# ── CORS Middleware ──────────────────────────────────────────────
+_env_origins = os.getenv("ALLOWED_ORIGINS", "")
+_cors_origins = [o.strip() for o in _env_origins.split(",") if o.strip()]
+_default_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+ALL_ALLOWED_ORIGINS = list(set(_cors_origins + _default_origins))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=ALL_ALLOWED_ORIGINS,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -804,4 +813,5 @@ async def get_reports(
 # ─────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)

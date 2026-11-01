@@ -4,7 +4,7 @@ import Navbar       from '../components/Navbar'
 import UploadSection from '../components/UploadSection'
 import ResultCard   from '../components/ResultCard'
 import Loader       from '../components/Loader'
-import { predictDisease } from '../services/api'
+import { predictDisease, API_BASE_URL } from '../services/api'
 
 /**
  * Home — main page that orchestrates the full X-ray diagnosis workflow.
@@ -54,7 +54,7 @@ function Home() {
         message = err.response.data?.detail
           || `Server error ${err.response.status}. Please check the backend.`
       } else if (err.request) {
-        message = 'Cannot reach the server. Make sure the backend is running on http://localhost:8000.'
+        message = `Cannot reach the server. Make sure the backend is reachable at ${API_BASE_URL}.`
       }
 
       setApiError(message)

@@ -1,270 +1,238 @@
-# AI Chest X-ray Diagnosis System
+# AI Chest X-Ray Diagnosis System
 
-![Status](https://img.shields.io/badge/Status-Live-brightgreen?style=for-the-badge)
-![React](https://img.shields.io/badge/Frontend-React-61DAFB?style=for-the-badge&logo=react)
-![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?style=for-the-badge&logo=fastapi)
-![TensorFlow](https://img.shields.io/badge/Model-TensorFlow-FF6F00?style=for-the-badge&logo=tensorflow)
-![EfficientNet](https://img.shields.io/badge/Architecture-EfficientNetB0-blue?style=for-the-badge)
-![GradCAM](https://img.shields.io/badge/XAI-Grad--CAM-purple?style=for-the-badge)
+[![React](https://img.shields.io/badge/Frontend-React-61DAFB?style=flat-square&logo=react)](https://react.dev/)
+[![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com/)
+[![TensorFlow](https://img.shields.io/badge/Model-TensorFlow-FF6F00?style=flat-square&logo=tensorflow)](https://www.tensorflow.org/)
+[![EfficientNet](https://img.shields.io/badge/Architecture-EfficientNetB0-blue?style=flat-square)](https://arxiv.org/abs/1905.11946)
+[![Grad-CAM](https://img.shields.io/badge/XAI-Grad--CAM-purple?style=flat-square)](https://arxiv.org/abs/1610.02391)
 
-An AI-powered web application for analyzing chest X-ray images, detecting diseases, and visualizing affected regions using deep learning and explainable AI.
-
----
-
-## Features
-
-| Feature | Status |
-|---|---|
-| React Frontend (Vite + Tailwind) | Complete |
-| FastAPI Backend | Complete |
-| JWT Authentication (register / login) | Complete |
-| EfficientNetB0 ML Model | Integrated |
-| 5-Class Disease Classification | Live |
-| Grad-CAM Heatmap Visualization | Live |
-| Per-user Report Storage (SQLite) | Complete |
-| REST API for predictions & reports | Complete |
+An artificial intelligence-driven web platform designed for automated chest radiograph classification and localization using deep convolutional neural networks and explainable artificial intelligence (XAI).
 
 ---
 
-## Problem Statement
+## Overview
 
-Chest X-ray interpretation requires expert radiologists and can be time-consuming and error-prone. This project builds an automated AI assistant that:
+Chest radiograph evaluation constitutes a critical yet resource-intensive task in clinical radiology. This system provides an automated decision-support pipeline that:
 
-- Classifies chest X-rays into 5 disease categories
-- Highlights the regions of the image that influenced the prediction using Grad-CAM
-- Stores per-user diagnostic reports for review
+1. Classifies chest X-ray radiographs across five pulmonary disease categories using a balanced EfficientNetB0 backbone.
+2. Identifies class-discriminative anatomical regions utilizing Gradient-weighted Class Activation Mapping (Grad-CAM).
+3. Generates structured radiology findings with per-user report persistence.
+4. Exposes authenticated REST endpoints and a responsive client interface for clinical workflow simulation.
 
-> **Disclaimer:** This project is for educational purposes only and is not intended for clinical or diagnostic use.
+> **Medical Disclaimer:** This software is intended solely for research, academic, and demonstration purposes. It is neither approved for clinical diagnostic workflows nor intended to replace professional radiological evaluation.
 
 ---
 
-## How It Works
+## System Architecture
 
-```
-Upload X-ray
-    |
-Grayscale -> Resize (224x224) -> Stack x3 -> EfficientNet preprocess_input
-    |
-EfficientNetB0 (5-class sigmoid) -> Prediction + Confidence
-    |
-Grad-CAM (top_conv layer) -> Heatmap overlay on original image
-    |
-Save report + heatmap -> Return JSON response -> Display in UI
+```mermaid
+flowchart LR
+    A[Client Browser] -->|Upload DICOM/Image & Auth Token| B[React Frontend / Vercel]
+    B -->|REST API Requests| C[FastAPI Backend / Docker]
+    C -->|Preprocessing 224x224x3| D[EfficientNetB0 Backbone]
+    D -->|Feature Maps| E[Grad-CAM Engine]
+    D -->|Classification Head| F[5-Class Probability Distribution]
+    E -->|Heatmap Colormap Overlay| G[Diagnostic Visualization]
+    C -->|ORM Persistence| H[(SQLite / PostgreSQL)]
+    G --> B
+    F --> B
 ```
 
 ---
 
-## ML Model
+## Machine Learning Pipeline
 
-### Architecture
+### Architecture Specification
 
-```
-EfficientNetB0 (weights=None, include_top=False, input_shape=(224,224,3))
-    -> GlobalAveragePooling2D
-    -> BatchNormalization
-    -> Dense(256, relu)
-    -> Dropout(0.5)
-    -> Dense(5, sigmoid)
-```
+The classification pipeline is built upon an EfficientNetB0 architecture tailored for 5-class pulmonary condition detection:
 
-### Output Classes
+* **Base Model:** `EfficientNetB0` (`include_top=False`, `input_shape=(224, 224, 3)`)
+* **Feature Extraction:** `GlobalAveragePooling2D`
+* **Regularization:** `BatchNormalization`
+* **Representation Layer:** `Dense(256, activation='relu')`
+* **Dropout Layer:** `Dropout(0.5)`
+* **Output Layer:** `Dense(5, activation='sigmoid')`
 
-| Index | Disease |
-|---|---|
-| 0 | Infiltration |
-| 1 | Effusion |
-| 2 | Atelectasis |
-| 3 | Nodule |
-| 4 | Mass |
+### Target Classes
 
-### Preprocessing Pipeline
+| Class Index | Pathology | Clinical Indication |
+|:---:|:---|:---|
+| 0 | Infiltration | Pulmonary airspace opacity or consolidation |
+| 1 | Effusion | Pathological fluid collection in pleural space |
+| 2 | Atelectasis | Partial or complete alveolar collapse |
+| 3 | Nodule | Discrete pulmonary lesion (diameter $\le$ 30 mm) |
+| 4 | Mass | Discrete pulmonary lesion (diameter > 30 mm) |
 
-1. Convert image to grayscale (X-rays are monochrome)
-2. Resize to 224 x 224
-3. Convert to float32 array
-4. Stack x3 to create 3-channel input (H, W, 3)
-5. Apply `preprocess_input` — EfficientNet-specific normalization
-6. Expand batch dimension — final shape `(1, 224, 224, 3)`
+### Image Preprocessing Protocol
 
-### Weights
+1. **Greyscale Conversion:** Standardizes single-channel radiograph data.
+2. **Bicubic Resampling:** Resizes input image to standard spatial dimensions of $224 \times 224$ pixels.
+3. **Channel Duplication:** Replicates single channel across 3 dimensions to maintain compatibility with 3-channel convolutional kernels.
+4. **EfficientNet Normalization:** Scales RGB values according to EfficientNet inference standards.
+5. **Batch Expansion:** Expands tensor dimensions to shape `(1, 224, 224, 3)`.
 
-```
-backend/model/model_5class_balanced_weights.h5   (~18 MB, class-balanced training)
-```
+### Explainable AI (Grad-CAM)
 
----
+To provide interpretability for the predictions, Gradient-weighted Class Activation Mapping (Grad-CAM) is computed directly from the final convolutional stage:
 
-## Grad-CAM — Explainable AI
-
-The system uses **Gradient-weighted Class Activation Mapping (Grad-CAM)** to identify which regions of the X-ray influenced the model's prediction.
-
-- **Target layer:** `top_conv` — final convolutional layer of EfficientNetB0, feature map size 7x7
-- **Algorithm:** `tf.GradientTape` computes gradients of the predicted class score with respect to the `top_conv` feature maps. Gradients are globally average-pooled, used to weight the feature maps, summed, passed through ReLU, and normalized.
-- **Overlay:** JET colormap blended at 45% opacity onto the original X-ray
-- **Fallback:** Pure-NumPy JET colormap if OpenCV is not installed
-- **Output path:** `backend/uploads/heatmaps/<uuid>.png`
+* **Target Activation Layer:** `top_conv` (final convolutional stage before pooling, feature dimensions $7 \times 7$)
+* **Gradient Extraction:** Utilizes `tf.GradientTape` to compute the gradients of the selected class score with respect to feature maps $A^k$.
+* **Neuron Importance Weights:**
+  $$\alpha_k^c = \frac{1}{Z} \sum_{i} \sum_{j} \frac{\partial y^c}{\partial A_{i,j}^k}$$
+* **Activation Map Generation:**
+  $$L_{\text{Grad-CAM}}^c = \text{ReLU}\left(\sum_k \alpha_k^c A^k\right)$$
+* **Visualization:** The computed heatmap is normalized, bilinearly interpolated to the original image dimensions, colored with the JET colormap, and blended with 45% alpha opacity over the source radiograph.
 
 ---
 
-## Tech Stack
-
-### Frontend
-- React (Vite)
-- Tailwind CSS
-- Axios with JWT interceptors
-
-### Backend
-- FastAPI (Python)
-- SQLite with SQLAlchemy ORM
-- JWT Authentication via python-jose
-- Pillow for image processing
-- python-multipart for file uploads
-
-### AI / ML
-- TensorFlow / Keras >= 2.13
-- EfficientNetB0 (custom-trained, no ImageNet weights)
-- NumPy >= 1.24
-- Grad-CAM via `tf.GradientTape`
-
----
-
-## Project Structure
+## Repository Structure
 
 ```
 xray-app/
 ├── backend/
-│   ├── main.py                               # FastAPI application — auth, predict, reports
-│   ├── requirements.txt
+│   ├── main.py                     # FastAPI application routes, auth, inference & reports
+│   ├── requirements.txt            # Python dependencies with pinned constraints
+│   ├── Dockerfile                  # Containerization image for cloud/Render deployment
 │   ├── model/
-│   │   ├── model_5class_balanced_weights.h5  # Trained model weights
-│   │   ├── inference_5class.py               # Standalone inference module
-│   │   └── model_5class.py
+│   │   ├── model_5class_balanced_weights.h5  # Pre-trained balanced network weights
+│   │   ├── inference_5class.py     # Standalone model loading and inference logic
+│   │   └── model_5class.py         # Network architecture definition
 │   ├── uploads/
-│   │   └── heatmaps/                         # Grad-CAM heatmap output images
-│   └── xray_app.db                           # SQLite database
+│   │   └── heatmaps/               # Generated Grad-CAM visual artifacts
+│   └── xray_app.db                 # Relational database (SQLite)
 │
 ├── frontend/
 │   ├── src/
-│   │   ├── components/
-│   │   │   ├── Navbar.jsx
-│   │   │   ├── Loader.jsx
-│   │   │   ├── ResultCard.jsx
-│   │   │   ├── ReportModal.jsx
-│   │   │   ├── UploadSection.jsx
-│   │   │   └── PrivateRoute.jsx
-│   │   ├── pages/
-│   │   │   ├── Home.jsx
-│   │   │   ├── Login.jsx
-│   │   │   └── Reports.jsx
-│   │   ├── services/api.js
-│   │   ├── context/AuthContext.jsx
-│   │   └── main.jsx
-│   ├── index.html
-│   ├── vite.config.js
-│   └── tailwind.config.js
+│   │   ├── components/             # Reusable UI components (Navbar, Modal, ResultCard)
+│   │   ├── pages/                  # Application views (Home, Login, Reports)
+│   │   ├── context/                # Authentication context and token providers
+│   │   ├── services/api.js         # Centralized Axios client and interceptors
+│   │   └── main.jsx                # Application root mount
+│   ├── vercel.json                 # Vercel Single Page Application rewrite rules
+│   ├── vite.config.js              # Vite bundler configuration
+│   ├── tailwind.config.js          # Tailwind CSS styles and palette
+│   └── package.json                # Frontend package dependencies and scripts
 │
-└── README.md
+├── vercel.json                     # Root deployment configuration for Vercel
+├── .gitignore                      # Git exclusion rules
+└── README.md                       # Project documentation
 ```
 
 ---
 
-## Setup and Running
+## Installation and Local Setup
 
 ### Prerequisites
-- Python 3.9 or higher
-- Node.js 18 or higher
-- Approximately 500 MB disk space (TensorFlow + model weights)
 
-### Backend
+* Python 3.9 through 3.11
+* Node.js 18.x or higher
+* npm 9.x or higher
 
-```bash
-cd backend
+### Backend Configuration
 
-# Create and activate virtual environment
-python -m venv venv
-venv\Scripts\activate          # Windows
-# source venv/bin/activate     # Linux / macOS
+1. Navigate to the backend directory:
+   ```bash
+   cd backend
+   ```
 
-# Install dependencies
-pip install -r requirements.txt
+2. Initialize and activate a virtual environment:
+   * **Linux / macOS:**
+     ```bash
+     python3 -m venv venv
+     source venv/bin/activate
+     ```
+   * **Windows:**
+     ```powershell
+     python -m venv venv
+     .\venv\Scripts\activate
+     ```
 
-# Start the server
-uvicorn main:app --reload
-```
+3. Install required dependencies:
+   ```bash
+   pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
 
-Server runs at: `http://127.0.0.1:8000`
+4. Launch the application server:
+   ```bash
+   uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+   ```
 
-Expected startup output:
-```
-INFO  Building EfficientNetB0 architecture (balanced) ...
-INFO  EfficientNetB0 model loaded successfully (4383912 params).
-INFO  Application startup complete.
-```
+The API service initializes at `http://127.0.0.1:8000`. Interactive OpenAPI documentation is accessible at `http://127.0.0.1:8000/docs`.
 
-### Frontend
+### Frontend Configuration
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+1. Navigate to the frontend directory:
+   ```bash
+   cd frontend
+   ```
 
-Frontend runs at: `http://localhost:5173`
+2. Install Node dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Start the development server:
+   ```bash
+   npm run dev
+   ```
+
+The client application will be available at `http://localhost:5173`.
+
+---
+
+## Production Deployment
+
+### Frontend (Vercel)
+
+The frontend is configured for deployment on Vercel:
+
+1. Link the repository via the Vercel dashboard.
+2. Configure project settings:
+   * **Framework Preset:** `Vite`
+   * **Root Directory:** `frontend`
+   * **Build Command:** `npm run build`
+   * **Output Directory:** `dist`
+3. Configure the following environment variable:
+   * `VITE_API_BASE_URL`: The fully qualified domain of the deployed backend (e.g., `https://api.yourdomain.com`).
+4. Trigger the deployment. SPA routing is managed automatically via `frontend/vercel.json`.
+
+### Backend (Docker / Cloud Container Services)
+
+Because the backend executes TensorFlow inference and requires persistent model weight availability, containerized deployment (e.g., Render, Railway, Google Cloud Run) is recommended:
+
+1. Build the Docker container:
+   ```bash
+   docker build -t xray-backend:latest -f backend/Dockerfile backend/
+   ```
+
+2. Run the container locally or in production:
+   ```bash
+   docker run -d -p 8000:8000 --name xray-backend xray-backend:latest
+   ```
+
+3. Set the following environment variables on the hosting provider:
+   * `ALLOWED_ORIGINS`: Comma-separated list of permitted frontend origins (e.g., `https://your-app.vercel.app`).
+   * `SECRET_KEY`: A cryptographically secure random string for JWT signature validation.
+   * `PORT`: Standard port assignment provided by the hosting environment (defaults to `8000`).
 
 ---
 
 ## API Reference
 
-| Method | Endpoint | Auth Required | Description |
-|---|---|---|---|
-| `POST` | `/auth/register` | No | Register a new user |
-| `POST` | `/auth/login` | No | Login and receive a JWT token |
-| `POST` | `/predict` | Yes | Upload an X-ray image, returns prediction and heatmap |
-| `GET` | `/reports` | Yes | List all reports for the authenticated user |
-| `GET` | `/reports/{id}` | Yes | Retrieve a single report by ID |
-| `GET` | `/uploads/heatmaps/{file}` | No | Serve a generated heatmap image |
-
-### Prediction Response Example
-
-```json
-{
-  "disease": "Effusion",
-  "confidence": 0.87,
-  "report": "The X-ray suggests signs of Effusion with confidence 0.87",
-  "heatmap_url": "http://localhost:8000/uploads/heatmaps/abc123.png",
-  "report_id": 42
-}
-```
+| HTTP Method | Route | Authentication | Payload / Parameters | Description |
+|:---|:---|:---:|:---|:---|
+| `GET` | `/health` | None | None | Service liveness probe |
+| `POST` | `/auth/register` | None | `{"email": "...", "password": "..."}` | User account registration |
+| `POST` | `/auth/login` | None | `OAuth2PasswordRequestForm` | Authenticates credentials and returns JWT bearer token |
+| `POST` | `/predict` | Bearer Token | `multipart/form-data` (file: Image) | Performs 5-class classification and generates Grad-CAM heatmap |
+| `GET` | `/reports` | Bearer Token | None | Retrieves historical reports associated with the authenticated user |
+| `GET` | `/reports/{id}` | Bearer Token | `id: integer` | Retrieves full report record by primary key |
+| `GET` | `/uploads/{filename}` | None | `filename: string` | Serves original radiograph assets |
+| `GET` | `/uploads/heatmaps/{filename}` | None | `filename: string` | Serves Grad-CAM output visualizations |
 
 ---
 
-## Authors
+## License
 
-**Naveen Sharma**
-[![GitHub](https://img.shields.io/badge/GitHub-naveensh851-181717?style=for-the-badge&logo=github)](https://github.com/naveensh851)
-
-Frontend, Backend Integration, ML Integration & Deployment
-
----
-
-**Himanshu Ranglani**
-[![GitHub](https://img.shields.io/badge/GitHub-himanshu--ranglani-181717?style=for-the-badge&logo=github)](https://github.com/himanshu-ranglani)
-
-Model Training, Data Preparation & Evaluation
-
----
-
-## Future Scope
-
-- Multi-label prediction — detecting multiple diseases per scan
-- PDF report export
-- Cloud deployment (Render / Railway / GCP)
-- DICOM file format support
-- Doctor review and annotation layer
-- Mobile-responsive UI improvements
-
----
-
-## Support
-
-If you find this project useful, consider giving it a star on GitHub.
+This project is distributed under the terms of the MIT License.

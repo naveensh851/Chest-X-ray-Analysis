@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: xray-backend
+    env: docker
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        value: "https://*.vercel.app"

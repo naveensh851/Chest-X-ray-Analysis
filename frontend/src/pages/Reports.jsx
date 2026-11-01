@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import Navbar      from '../components/Navbar'
 import ReportModal from '../components/ReportModal'
-import { getReports } from '../services/api'
+import { getReports, API_BASE_URL } from '../services/api'
 
 /** Badge colour based on disease name */
 function diseaseBadgeClass(disease) {
@@ -41,7 +41,7 @@ function ReportCard({ report, index, onSelect }) {
   const timeStr = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 
   // image_url is now provided directly by the backend
-  const imageUrl = report.image_url || `http://localhost:8000${report.image_path}`
+  const imageUrl = report.image_url || `${API_BASE_URL}${report.image_path}`
 
   return (
     <div

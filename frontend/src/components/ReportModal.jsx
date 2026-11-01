@@ -4,7 +4,9 @@ import {
   ImageOff, ZoomIn, CheckCircle, AlertTriangle,
 } from 'lucide-react'
 
-const API_BASE = 'http://localhost:8000'
+import { API_BASE_URL } from '../services/api'
+
+const API_BASE = API_BASE_URL
 
 /** Confidence colour helpers */
 function confidenceColor(pct) {

@@ -1,13 +1,23 @@
 # Frontend
 node_modules/
 dist/
+.vercel/
 
 # Backend
 venv/
 __pycache__/
+*.db
+backend/uploads/*.png
+backend/uploads/*.jpg
+backend/uploads/*.jpeg
+backend/uploads/heatmaps/
 
 # Environment
 .env
+.env.local
 
-# OS
+# OS & Archives
 .DS_Store
+*.zip
+frontend and model/
+
