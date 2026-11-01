@@ -1,4 +1,4 @@
-# 🩺 AI Chest X-ray Diagnosis System
+# AI Chest X-ray Diagnosis System
 
 ![Status](https://img.shields.io/badge/Status-Live-brightgreen?style=for-the-badge)
 ![React](https://img.shields.io/badge/Frontend-React-61DAFB?style=for-the-badge&logo=react)
@@ -11,63 +11,63 @@ An AI-powered web application for analyzing chest X-ray images, detecting diseas
 
 ---
 
-## ✅ What's Working
+## Features
 
 | Feature | Status |
 |---|---|
-| React Frontend (Vite + Tailwind) | ✅ Complete |
-| FastAPI Backend | ✅ Complete |
-| JWT Authentication (register / login) | ✅ Complete |
-| Real EfficientNetB0 ML Model | ✅ Integrated |
-| 5-Class Disease Classification | ✅ Live |
-| Grad-CAM Heatmap Visualization | ✅ Live |
-| Per-user Report Storage (SQLite) | ✅ Complete |
-| REST API for predictions & reports | ✅ Complete |
+| React Frontend (Vite + Tailwind) | Complete |
+| FastAPI Backend | Complete |
+| JWT Authentication (register / login) | Complete |
+| EfficientNetB0 ML Model | Integrated |
+| 5-Class Disease Classification | Live |
+| Grad-CAM Heatmap Visualization | Live |
+| Per-user Report Storage (SQLite) | Complete |
+| REST API for predictions & reports | Complete |
 
 ---
 
-## 🧠 Problem Statement
+## Problem Statement
 
 Chest X-ray interpretation requires expert radiologists and can be time-consuming and error-prone. This project builds an automated AI assistant that:
 
 - Classifies chest X-rays into 5 disease categories
-- Highlights the regions of the image that influenced the prediction (Grad-CAM)
+- Highlights the regions of the image that influenced the prediction using Grad-CAM
 - Stores per-user diagnostic reports for review
 
-> ⚠️ **Disclaimer:** This project is for educational purposes only and is **not** intended for clinical or diagnostic use.
+> **Disclaimer:** This project is for educational purposes only and is not intended for clinical or diagnostic use.
 
 ---
 
-## 💡 How It Works
+## How It Works
 
 ```
 Upload X-ray
-    ↓
-Grayscale → Resize (224×224) → Stack ×3 → EfficientNet preprocess_input
-    ↓
-EfficientNetB0 (5-class sigmoid) → Prediction + Confidence
-    ↓
-Grad-CAM (top_conv layer) → Heatmap overlay on original image
-    ↓
-Save report + heatmap → Return JSON response → Display in UI
+    |
+Grayscale -> Resize (224x224) -> Stack x3 -> EfficientNet preprocess_input
+    |
+EfficientNetB0 (5-class sigmoid) -> Prediction + Confidence
+    |
+Grad-CAM (top_conv layer) -> Heatmap overlay on original image
+    |
+Save report + heatmap -> Return JSON response -> Display in UI
 ```
 
 ---
 
-## 🤖 ML Model
+## ML Model
 
 ### Architecture
 
 ```
 EfficientNetB0 (weights=None, include_top=False, input_shape=(224,224,3))
-    → GlobalAveragePooling2D
-    → BatchNormalization
-    → Dense(256, relu)
-    → Dropout(0.5)
-    → Dense(5, sigmoid)          ← multi-label output
+    -> GlobalAveragePooling2D
+    -> BatchNormalization
+    -> Dense(256, relu)
+    -> Dropout(0.5)
+    -> Dense(5, sigmoid)
 ```
 
-### Classes
+### Output Classes
 
 | Index | Disease |
 |---|---|
@@ -79,12 +79,12 @@ EfficientNetB0 (weights=None, include_top=False, input_shape=(224,224,3))
 
 ### Preprocessing Pipeline
 
-1. Convert image to **grayscale** (X-rays are monochrome)
-2. Resize to **224 × 224**
+1. Convert image to grayscale (X-rays are monochrome)
+2. Resize to 224 x 224
 3. Convert to float32 array
-4. **Stack × 3** to create 3-channel input (H, W, 3)
-5. Apply `preprocess_input` (EfficientNet-specific normalization)
-6. Expand batch dimension → shape `(1, 224, 224, 3)`
+4. Stack x3 to create 3-channel input (H, W, 3)
+5. Apply `preprocess_input` — EfficientNet-specific normalization
+6. Expand batch dimension — final shape `(1, 224, 224, 3)`
 
 ### Weights
 
@@ -94,54 +94,54 @@ backend/model/model_5class_balanced_weights.h5   (~18 MB, class-balanced trainin
 
 ---
 
-## 🔥 Grad-CAM (Explainable AI)
+## Grad-CAM — Explainable AI
 
-The system uses **Gradient-weighted Class Activation Mapping (Grad-CAM)** to show *which regions of the X-ray influenced the prediction*.
+The system uses **Gradient-weighted Class Activation Mapping (Grad-CAM)** to identify which regions of the X-ray influenced the model's prediction.
 
-- **Target layer:** `top_conv` (final convolutional layer of EfficientNetB0, output 7×7)
-- **Algorithm:** `tf.GradientTape` → gradients of predicted class score w.r.t. `top_conv` feature maps → global average pool → weighted sum → ReLU → normalize
+- **Target layer:** `top_conv` — final convolutional layer of EfficientNetB0, feature map size 7x7
+- **Algorithm:** `tf.GradientTape` computes gradients of the predicted class score with respect to the `top_conv` feature maps. Gradients are globally average-pooled, used to weight the feature maps, summed, passed through ReLU, and normalized.
 - **Overlay:** JET colormap blended at 45% opacity onto the original X-ray
 - **Fallback:** Pure-NumPy JET colormap if OpenCV is not installed
-- **Saved to:** `backend/uploads/heatmaps/<uuid>.png`
+- **Output path:** `backend/uploads/heatmaps/<uuid>.png`
 
 ---
 
-## 🏗️ Tech Stack
+## Tech Stack
 
 ### Frontend
-- **React** (Vite)
-- **Tailwind CSS**
-- **Axios** (with JWT interceptors)
+- React (Vite)
+- Tailwind CSS
+- Axios with JWT interceptors
 
 ### Backend
-- **FastAPI** (Python)
-- **SQLite** + SQLAlchemy ORM
-- **JWT** Authentication (python-jose)
-- **Pillow** for image handling
-- **python-multipart** for file uploads
+- FastAPI (Python)
+- SQLite with SQLAlchemy ORM
+- JWT Authentication via python-jose
+- Pillow for image processing
+- python-multipart for file uploads
 
 ### AI / ML
-- **TensorFlow / Keras** ≥ 2.13
-- **EfficientNetB0** (custom-trained, no ImageNet weights)
-- **NumPy** ≥ 1.24
-- **Grad-CAM** via `tf.GradientTape`
+- TensorFlow / Keras >= 2.13
+- EfficientNetB0 (custom-trained, no ImageNet weights)
+- NumPy >= 1.24
+- Grad-CAM via `tf.GradientTape`
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 xray-app/
 ├── backend/
-│   ├── main.py                          # FastAPI app — auth, predict, reports
+│   ├── main.py                               # FastAPI application — auth, predict, reports
 │   ├── requirements.txt
 │   ├── model/
-│   │   ├── model_5class_balanced_weights.h5   # Trained weights
-│   │   ├── inference_5class.py                # Standalone inference module
+│   │   ├── model_5class_balanced_weights.h5  # Trained model weights
+│   │   ├── inference_5class.py               # Standalone inference module
 │   │   └── model_5class.py
 │   ├── uploads/
-│   │   └── heatmaps/                    # Generated Grad-CAM heatmap images
-│   └── xray_app.db                      # SQLite database
+│   │   └── heatmaps/                         # Grad-CAM heatmap output images
+│   └── xray_app.db                           # SQLite database
 │
 ├── frontend/
 │   ├── src/
@@ -168,12 +168,12 @@ xray-app/
 
 ---
 
-## ⚙️ Setup & Running
+## Setup and Running
 
 ### Prerequisites
-- Python 3.9+
-- Node.js 18+
-- ~500 MB disk space (TensorFlow + model weights)
+- Python 3.9 or higher
+- Node.js 18 or higher
+- Approximately 500 MB disk space (TensorFlow + model weights)
 
 ### Backend
 
@@ -183,7 +183,7 @@ cd backend
 # Create and activate virtual environment
 python -m venv venv
 venv\Scripts\activate          # Windows
-# source venv/bin/activate     # Linux/macOS
+# source venv/bin/activate     # Linux / macOS
 
 # Install dependencies
 pip install -r requirements.txt
@@ -192,11 +192,11 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-Server runs at: **http://127.0.0.1:8000**
+Server runs at: `http://127.0.0.1:8000`
 
-On startup you'll see:
+Expected startup output:
 ```
-INFO  Building EfficientNetB0 architecture (balanced) …
+INFO  Building EfficientNetB0 architecture (balanced) ...
 INFO  EfficientNetB0 model loaded successfully (4383912 params).
 INFO  Application startup complete.
 ```
@@ -209,22 +209,22 @@ npm install
 npm run dev
 ```
 
-Frontend runs at: **http://localhost:5173**
+Frontend runs at: `http://localhost:5173`
 
 ---
 
-## 🔌 API Reference
+## API Reference
 
-| Method | Endpoint | Auth | Description |
+| Method | Endpoint | Auth Required | Description |
 |---|---|---|---|
-| `POST` | `/auth/register` | ❌ | Register new user |
-| `POST` | `/auth/login` | ❌ | Login, returns JWT |
-| `POST` | `/predict` | ✅ | Upload X-ray → get prediction + heatmap |
-| `GET` | `/reports` | ✅ | List all reports for current user |
-| `GET` | `/reports/{id}` | ✅ | Get single report |
-| `GET` | `/uploads/heatmaps/{file}` | ❌ | Serve heatmap image |
+| `POST` | `/auth/register` | No | Register a new user |
+| `POST` | `/auth/login` | No | Login and receive a JWT token |
+| `POST` | `/predict` | Yes | Upload an X-ray image, returns prediction and heatmap |
+| `GET` | `/reports` | Yes | List all reports for the authenticated user |
+| `GET` | `/reports/{id}` | Yes | Retrieve a single report by ID |
+| `GET` | `/uploads/heatmaps/{file}` | No | Serve a generated heatmap image |
 
-### Predict Response Example
+### Prediction Response Example
 
 ```json
 {
@@ -238,33 +238,33 @@ Frontend runs at: **http://localhost:5173**
 
 ---
 
-## 👨‍💻 Authors
+## Authors
 
-### 🧑‍💻 Naveen Sharma
+**Naveen Sharma**
 [![GitHub](https://img.shields.io/badge/GitHub-naveensh851-181717?style=for-the-badge&logo=github)](https://github.com/naveensh851)
 
 Frontend, Backend Integration, ML Integration & Deployment
 
 ---
 
-### 🧑‍💻 Himanshu Ranglani
+**Himanshu Ranglani**
 [![GitHub](https://img.shields.io/badge/GitHub-himanshu--ranglani-181717?style=for-the-badge&logo=github)](https://github.com/himanshu-ranglani)
 
 Model Training, Data Preparation & Evaluation
 
 ---
 
-## 📌 Future Scope
+## Future Scope
 
-- [ ] Multi-label prediction (multiple diseases per scan)
-- [ ] PDF report export
-- [ ] Cloud deployment (Render / Railway / GCP)
-- [ ] DICOM file support
-- [ ] Doctor review / annotation layer
-- [ ] Mobile responsive improvements
+- Multi-label prediction — detecting multiple diseases per scan
+- PDF report export
+- Cloud deployment (Render / Railway / GCP)
+- DICOM file format support
+- Doctor review and annotation layer
+- Mobile-responsive UI improvements
 
 ---
 
-## ⭐ Support
+## Support
 
-If you like this project, consider giving it a ⭐ on GitHub!
+If you find this project useful, consider giving it a star on GitHub.
