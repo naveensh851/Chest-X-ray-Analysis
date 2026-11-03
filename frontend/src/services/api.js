@@ -7,6 +7,28 @@ export const API_BASE_URL = (
 ).replace(/\/+$/, '')
 
 /**
+ * Safely resolves an image or heatmap path/URL into a fully qualified URL.
+ * Handles relative paths, absolute URLs, and HTTP->HTTPS protocol matching.
+ *
+ * @param {string} urlOrPath - The path or URL from the API
+ * @returns {string} - Fully qualified URL
+ */
+export const getFullImageUrl = (urlOrPath) => {
+  if (!urlOrPath) return ''
+  if (urlOrPath.startsWith('data:') || urlOrPath.startsWith('blob:')) {
+    return urlOrPath
+  }
+  if (urlOrPath.startsWith('http://') || urlOrPath.startsWith('https://')) {
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && urlOrPath.startsWith('http://')) {
+      return urlOrPath.replace('http://', 'https://')
+    }
+    return urlOrPath
+  }
+  const clean = urlOrPath.startsWith('/') ? urlOrPath : `/${urlOrPath}`
+  return `${API_BASE_URL}${clean}`
+}
+
+/**
  * Axios instance with default configuration for the X-ray diagnosis API.
  * The request interceptor automatically injects the Bearer token from
  * localStorage into every outgoing request.
@@ -73,11 +95,11 @@ export const loginUser = async (email, password) => {
 // ─────────────────────────────────────────────────────────────────
 
 /**
- * Sends an X-ray image to the backend for disease prediction.
+ * Sends an X-ray image to the backend for disease prediction and Grad-CAM generation.
  * Token is injected automatically by the request interceptor.
  *
  * @param {File} imageFile - The image file to analyze
- * @returns {Promise<{ disease: string, confidence: number, report: string }>}
+ * @returns {Promise<{ disease: string, confidence: number, report: string, heatmap_url: string, heatmap_path: string }>}
  */
 export const predictDisease = async (imageFile) => {
   const formData = new FormData()
@@ -98,7 +120,7 @@ export const predictDisease = async (imageFile) => {
 
 /**
  * Fetches all saved reports for the currently authenticated user.
- * @returns {Promise<Array<{ id, image_path, disease, confidence, created_at }>>}
+ * @returns {Promise<Array<{ id, image_path, image_url, disease, confidence, report_text, heatmap_path, heatmap_url, created_at }>>}
  */
 export const getReports = async () => {
   const response = await apiClient.get('/reports')

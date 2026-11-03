@@ -1,0 +1,26 @@
+# Ignore virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Ignore Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore local database and archive files
+*.db
+*.sqlite3
+*.zip
+*.tar.gz
+
+# Ignore local uploads (will be created in container)
+uploads/
+
+# Ignore git
+.git/
+.gitignore
+.env
+.env.*

@@ -11,3 +11,15 @@ services:
         generateValue: true
       - key: ALLOWED_ORIGINS
         value: "https://*.vercel.app"
+      - key: MALLOC_ARENA_MAX
+        value: "1"
+      - key: TF_ENABLE_ONEDNN_OPTS
+        value: "0"
+      - key: TF_NUM_INTRAOP_THREADS
+        value: "1"
+      - key: TF_NUM_INTEROP_THREADS
+        value: "1"
+      - key: OMP_NUM_THREADS
+        value: "1"
+      - key: PYTHONUNBUFFERED
+        value: "1"

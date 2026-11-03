@@ -1,0 +1,36 @@
+# Ignore virtual environments
+venv/
+backend/venv/
+.venv/
+env/
+ENV/
+
+# Ignore Python caches
+__pycache__/
+backend/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore local database and archive files
+*.db
+*.sqlite3
+*.zip
+*.tar.gz
+
+# Ignore node modules and frontend artifacts
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend and model/
+
+# Ignore uploads directory contents (except keep directory structure)
+uploads/
+backend/uploads/
+
+# Ignore git and environment files
+.git/
+.gitignore
+.env
+.env.*
+!.env.production

@@ -2,11 +2,11 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ClipboardList, Calendar, Activity, TrendingUp,
-  AlertCircle, ImageOff, ArrowLeft, RefreshCw, Scan, Eye,
+  AlertCircle, ImageOff, ArrowLeft, RefreshCw, Scan, Eye, Flame,
 } from 'lucide-react'
 import Navbar      from '../components/Navbar'
 import ReportModal from '../components/ReportModal'
-import { getReports, API_BASE_URL } from '../services/api'
+import { getReports, API_BASE_URL, getFullImageUrl } from '../services/api'
 
 /** Badge colour based on disease name */
 function diseaseBadgeClass(disease) {
@@ -41,7 +41,7 @@ function ReportCard({ report, index, onSelect }) {
   const timeStr = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 
   // image_url is now provided directly by the backend
-  const imageUrl = report.image_url || `${API_BASE_URL}${report.image_path}`
+  const imageUrl = getFullImageUrl(report.image_url || report.image_path)
 
   return (
     <div
@@ -86,9 +86,17 @@ function ReportCard({ report, index, onSelect }) {
 
           {/* Top row: disease badge + date */}
           <div className="flex items-start justify-between gap-3 flex-wrap">
-            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${diseaseBadgeClass(report.disease)}`}>
-              {report.disease}
-            </span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${diseaseBadgeClass(report.disease)}`}>
+                {report.disease}
+              </span>
+              {(report.heatmap_url || report.heatmap_path) && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20" title="Grad-CAM explainability heatmap available">
+                  <Flame className="w-3 h-3 text-amber-400" />
+                  Grad-CAM
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-1 text-xs text-slate-500">
               <Calendar className="w-3.5 h-3.5" />
               <span>{dateStr}</span>

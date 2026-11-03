@@ -4,7 +4,7 @@ import Navbar       from '../components/Navbar'
 import UploadSection from '../components/UploadSection'
 import ResultCard   from '../components/ResultCard'
 import Loader       from '../components/Loader'
-import { predictDisease, API_BASE_URL } from '../services/api'
+import { predictDisease, API_BASE_URL, getFullImageUrl } from '../services/api'
 
 /**
  * Home — main page that orchestrates the full X-ray diagnosis workflow.
@@ -253,6 +253,7 @@ function Home() {
                   confidence={result.confidence}
                   report={result.report}
                   preview={preview}
+                  heatmapUrl={result.heatmap_url ? getFullImageUrl(result.heatmap_url) : (result.heatmap_path ? getFullImageUrl(result.heatmap_path) : '')}
                   file={file}
                   onReset={handleReset}
                 />
